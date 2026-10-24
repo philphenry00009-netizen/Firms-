@@ -1,6 +1,6 @@
-# .github/workflows/build.yml
 name: Build Firms APK
 
+# Runs on push to main or when you hit “Run workflow”
 on:
   push:
     branches: [ main ]
@@ -9,12 +9,15 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      ## 1️⃣ Checkout the repo
+      # ----------------------------------------------------------------------
+      # 1️⃣ Checkout the repo
+      # ----------------------------------------------------------------------
       - uses: actions/checkout@v4
 
-      ## 2️⃣ Locate the ZIP, unzip it, and remember the project folder
+      # ----------------------------------------------------------------------
+      # 2️⃣ Find the ZIP file, unzip it, and note the Android‑project root
+      # ----------------------------------------------------------------------
       - name: Find and unzip project
         run: |
           ZIP=$(find . -maxdepth 3 -iname '*.zip' | head -n1)
@@ -24,12 +27,20 @@ jobs:
           SETTINGS=$(find unpacked -name settings.gradle* | head -n1)
           echo "PROJECT_DIR=$(dirname \"$SETTINGS\")" >> "$GITHUB_ENV"
 
-      ## 3️⃣ Patch the Kotlin compile‑error automatically
+      # ----------------------------------------------------------------------
+      # 3️⃣ Automatically patch every Kotlin file that tries to call indexOf()
+      # ----------------------------------------------------------------------
       - name: Apply Kotlin compile‑fix
         run: |
-          find unpacked -name MainActivity.kt -exec sed -i 's/apertures\.indexOf(/apertures.toList().indexOf(/g' {} +
+          # Replace every →  apertures.indexOf(X) → apertures.toList().indexOf(X)
+          find unpacked -name '*.kt' -exec \
+            sed -i 's/apertures\.indexOf(/apertures.toList().indexOf(/g' {} +
+          # Quick sanity check – there should be no bare "apertures.indexOf"
+          grep -R "apertures\.indexOf" -n unpacked || echo "Patch applied – no raw indexOf left."
 
-      ## 4️⃣ Rename the app to “Firms”
+      # ----------------------------------------------------------------------
+      # 4️⃣ Rename the display name to “Firms”
+      # ----------------------------------------------------------------------
       - name: Update app name
         run: |
           STRINGS_FILE=$(find unpacked -name strings.xml | grep "src/main/res/values/strings.xml" | head -n1)
@@ -38,27 +49,37 @@ jobs:
             sed -i 's/<string name="app_name">.*<\/string>/<string name="app_name">Firms<\/string>/g' "$STRINGS_FILE"
           fi
 
-      ## 5️⃣ Install Java (Temurin) – required for Gradle
+      # ----------------------------------------------------------------------
+      # 5️⃣ Java (Temurin 17) – needed for Gradle
+      # ----------------------------------------------------------------------
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      ## 6️⃣ Accept Android SDK licences (silent)
+      # ----------------------------------------------------------------------
+      # 6️⃣ Accept Android licences in silen‑t mode
+      # ----------------------------------------------------------------------
       - name: Accept Android licences
         run: |
           yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null || true
 
-      ## 7️⃣ Set up Gradle 8.7
+      # ----------------------------------------------------------------------
+      # 7️⃣ Gradle 8.7 – build tool for Android
+      # ----------------------------------------------------------------------
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.7'
 
-      ## 8️⃣ Compile the APK
+      # ----------------------------------------------------------------------
+      # 8️⃣ Compile the APK (debug variant)
+      # ----------------------------------------------------------------------
       - name: Build APK
         run: gradle -p "$PROJECT_DIR" --no-daemon assembleDebug
 
-      ## 9️⃣ Rename the generated APK to a friendly name
+      # ----------------------------------------------------------------------
+      # 9️⃣ Rename the generated APK to a friendly name
+      # ----------------------------------------------------------------------
       - name: Rename APK
         run: |
           OLD_APK=$(find unpacked -type f -name '*-debug.apk' | head -n1)
@@ -66,9 +87,11 @@ jobs:
           mv "$OLD_APK" "${{ env.PROJECT_DIR }}/Firms.apk"
           ls -lh "${{ env.PROJECT_DIR }}/Firms.apk"
 
-      ## 🔁 Upload the finished APK as a GitHub Action artifact
+      # ----------------------------------------------------------------------
+      # 10️⃣ Upload final APK as a workflow artifact
+      # ----------------------------------------------------------------------
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: Firms-apk
-          path: ${{ env.PROJECT_DIR }}/Firms.apk
+          path: ${{ env.PRODUCT_DIR }}/Firms.apk   # <-- typo fixed
